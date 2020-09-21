@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>长图片，切分懒加载</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      font-size: 14px;
+    }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    body {
+      font-family: PingFangSC-Regular, Helvetica, Arial, Microsoft Yahei, Verdana, sans-serif;
+    }
+
+    .pic-container {
+      width: 100vw;
+      overflow-y: auto;
+      box-sizing: border-box;
+      height: 100vh;
+    }
+
+    .pic-list {
+      width: 100vw;
+      height: auto;
+    }
+
+    .img-wrapper {
+      width: 100vw;
+      height: auto;
+      margin: 0;
+      position: relative;
+    }
+
+    .img-wrapper.loading {
+      height: 200vw;
+    }
+
+    .img-wrapper.loading::before {
+      content: " ";
+      display: block;
+      width: 32px;
+      height: 32px;
+      background-size: 32px;
+      background-image: url(./images/loading.gif);
+      position: absolute;
+      z-index: -1;
+      left: 50%;
+      top: 120px;
+      transform: translate(-50%, 0);
+    }
+
+    .img-wrapper img {
+      width: 100vw;
+    }
+
+  </style>
+</head>
+<body>
+  <div class="pic-container" onscroll="containerScroll(event)">
+    <div id="picList" class="pic-list">
+    </div>
+  </div>
+
+  <script>
+    var pics = ["./pics/01.jpg", "./pics/02.jpg", "./pics/03.jpg"];
+    var heightWidthRatio = 2; //图片切分后高度和宽度的比值
+    (function() {
+      var screenWidth = screen.width;
+      var screenHeight = screen.height;
+      var itemHeight = heightWidthRatio*screenWidth | 0;
+      var totalHeight = itemHeight*pics.length;
+      var imgLoadPriority = pics.reduce(function(res, item, idx) {
+        res[idx] = 0;
+        return res;
+      },{}); //图片加载优先级，0：不加载，2：优先加载，1：等2加载完后加载
+      var imgLoadState = {}; //图片是否加载，0/undefined：未加载，1：加载中，2：已加载
+
+      function $(id) {
+        return document.getElementById(id);
+      }
+
+      //设置优先级，当下标在start和start+num之间时（不包含start+num），优先级为2
+      //当下标为start - 1或start + num时，优先级为1
+      function setLoadPriority(start, num) {
+        Object.keys(imgLoadPriority).forEach(function(key) {
+          let prio = imgLoadPriority[key];
+          let newPrio = 0;
+          if (key >= start && key < start + num) {
+            newPrio = 2;
+          } else if (key === start - 1 || key === start + num) {
+            newPrio = 1;
+          }
+          imgLoadPriority[key] = newPrio > prio ? newPrio : prio;
+        });
+        dispatch();
+      }
+
+      //根据图片的优先级进行调度加载图片
+      function dispatch() {
+        let immediateList = [];
+        let loadingList = [];
+        let waitingList = [];
+        Object.keys(imgLoadPriority).forEach(function(key) {
+          let prio = imgLoadPriority[key];
+          if (prio === 2) {
+            if (!imgLoadState[key]) {
+              immediateList.push(key);
+            } else if (imgLoadState[key] === 1){
+              loadingList.push(key);
+            }
+          } else if (prio === 1) {
+            waitingList.push(key);
+          }
+        });
+        if (immediateList.length) {
+          loadImgs(immediateList);
+        } else if (!loadingList.length && waitingList.length ) {
+          let promoteList = waitingList.slice(-2); //最多取出来2个提升优先级，以免影响紧急图片的加载
+          promoteList.forEach(function(key) {
+            imgLoadPriority[key] = 2;
+          });
+          dispatch();
+        }
+      }
+
+      function loadImgs(idxArr) {
+        var imgBoxs = $('picList').querySelectorAll('.img-wrapper');
+        idxArr.forEach(idx => {
+          imgBoxs[idx].innerHTML = [
+            '<img',
+            '  src="' + pics[idx] + '"',
+            '  onload="imgLoaded(event, ' + idx + ')"',
+            '  onerror="imgLoadError(event, ' + idx + ')" />'
+          ].join('');
+          imgLoadState[idx] = 1;
+        });
+      }
+
+      function containerScroll(e) {
+        let container = e.target;
+        let scrollTop = container.scrollTop;
+        let picInViewStartIdx = scrollTop/itemHeight | 0;
+        let picInViewNum = (screenHeight/itemHeight | 0) + 1;
+        setLoadPriority(picInViewStartIdx, picInViewNum);
+      }
+
+      //图片已加载，去掉loading样式
+      function imgLoaded(e, idx) {
+        if (e.target) {
+          var parent = e.target.parentNode;
+          parent.classList.remove('loading');
+        }
+        imgLoadState[idx] = 2;
+        dispatch();
+      }
+
+      //图片加载失败
+      function imgLoadError(e, idx) {
+        imgLoadState[idx] = 2;
+        dispatch();
+      }
+
+      function init() {
+        var template = pics.map(function(pic) {
+          return [
+            '<div class="img-wrapper loading">',
+            '</div>'
+          ].join('')
+        }).join('');
+        $('picList').innerHTML = template;
+        setLoadPriority(0, 1);
+      }
+
+      init();
+
+      //将函数放window上，可以页面中触发事件
+      window.imgLoaded = imgLoaded;
+      window.imgLoadError = imgLoadError;
+      window.containerScroll = containerScroll;
+    })();
+  </script>
+</body>
+</html>
