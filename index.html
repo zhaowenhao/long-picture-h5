@@ -75,8 +75,9 @@
     (function() {
       var screenWidth = screen.width;
       var screenHeight = screen.height;
-      var itemHeight = heightWidthRatio*screenWidth | 0;
-      var totalHeight = itemHeight*pics.length;
+      var itemHeightArr = pics.map(function() {
+        return heightWidthRatio*screenWidth | 0;
+      });
       var imgLoadPriority = pics.reduce(function(res, item, idx) {
         res[idx] = 0;
         return res;
@@ -87,10 +88,26 @@
         return document.getElementById(id);
       }
 
+      //防抖函数
+      function debounce(fn, timeout) {
+        let _timeout = null;
+        return function() {
+          if (_timeout) {
+            clearTimeout(_timeout);
+          }
+          let args = Array.prototype.slice.call(arguments);
+          _timeout = setTimeout(function() {
+            fn.apply(null, args);
+            _timeout = null;
+          }, timeout);
+        }
+      }
+
       //设置优先级，当下标在start和start+num之间时（不包含start+num），优先级为2
       //当下标为start - 1或start + num时，优先级为1
       function setLoadPriority(start, num) {
         Object.keys(imgLoadPriority).forEach(function(key) {
+          key = +key;
           let prio = imgLoadPriority[key];
           let newPrio = 0;
           if (key >= start && key < start + num) {
@@ -147,9 +164,27 @@
       function containerScroll(e) {
         let container = e.target;
         let scrollTop = container.scrollTop;
-        let picInViewStartIdx = scrollTop/itemHeight | 0;
-        let picInViewNum = (screenHeight/itemHeight | 0) + 1;
-        setLoadPriority(picInViewStartIdx, picInViewNum);
+        let picInViewStartIdx = 0;
+        let picInViewEndIdx = -1;
+        let isBetween = function(boundMin, boundMax, value) {
+          return value >= boundMin && value < boundMax;
+        }
+        let boundArr = itemHeightArr.reduce(function(arr, height) {
+          arr.push(arr[arr.length - 1] +  height);
+          return arr;
+        }, [0]);
+        boundArr.forEach(function(bound, idx) {
+          if (isBetween(bound, boundArr[idx + 1], scrollTop)) {
+            picInViewStartIdx = idx;
+          }
+          if (isBetween(bound, boundArr[idx + 1], scrollTop + screenHeight)) {
+            picInViewEndIdx = idx;
+          }
+        });
+        if (picInViewEndIdx < 0) {
+          picInViewEndIdx = boundArr.length - 1;
+        }
+        setLoadPriority(picInViewStartIdx, picInViewEndIdx - picInViewStartIdx + 1);
       }
 
       //图片已加载，去掉loading样式
@@ -157,6 +192,8 @@
         if (e.target) {
           var parent = e.target.parentNode;
           parent.classList.remove('loading');
+          parent.style.height = "";
+          itemHeightArr[idx] = +e.target.height;
         }
         imgLoadState[idx] = 2;
         dispatch();
@@ -171,7 +208,7 @@
       function init() {
         var template = pics.map(function(pic) {
           return [
-            '<div class="img-wrapper loading">',
+            '<div class="img-wrapper loading" style="height: ' + (heightWidthRatio*100 | 0) + 'vw">',
             '</div>'
           ].join('')
         }).join('');
@@ -184,7 +221,11 @@
       //将函数放window上，可以页面中触发事件
       window.imgLoaded = imgLoaded;
       window.imgLoadError = imgLoadError;
-      window.containerScroll = containerScroll;
+      window.containerScroll = debounce(containerScroll, 200); //滚动停止时，再去算位置，请求图片
+      window.__debug = {
+        imgLoadPriority: imgLoadPriority,
+        imgLoadState: imgLoadState
+      };
     })();
   </script>
 </body>
